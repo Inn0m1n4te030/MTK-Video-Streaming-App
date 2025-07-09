@@ -16,6 +16,7 @@ import {
   ProgressBarAndroid,
   ProgressViewIOS,
   Platform,
+  Modal,
 } from "react-native"
 import { WebView } from "react-native-webview"
 import * as FileSystem from "expo-file-system"
@@ -37,6 +38,14 @@ interface Movie {
   poster_path?: string
   vote_average: number
   overview?: string
+  runtime?: number
+  genres?: Array<{ id: number; name: string }>
+  production_companies?: Array<{ id: number; name: string }>
+  spoken_languages?: Array<{ iso_639_1: string; name: string }>
+  budget?: number
+  revenue?: number
+  status?: string
+  tagline?: string
 }
 
 interface Download {
@@ -60,6 +69,9 @@ export default function App() {
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null)
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null)
   const [isWatching, setIsWatching] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
+  const [movieDetails, setMovieDetails] = useState<Movie | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
 
   useEffect(() => {
     loadTrendingContent()
@@ -146,6 +158,21 @@ export default function App() {
     }
   }
 
+  const getMovieDetails = async (item: Movie, isTV = false) => {
+    setDetailsLoading(true)
+    try {
+      const url = `${TMDB_BASE_URL}/${isTV ? "tv" : "movie"}/${item.id}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos`
+      const res = await fetch(url)
+      const details = await res.json()
+      setMovieDetails(details)
+      setShowDetails(true)
+    } catch (error) {
+      Alert.alert("Error", "Failed to load movie details.")
+    } finally {
+      setDetailsLoading(false)
+    }
+  }
+
   const getStreamingUrl = async (item: Movie, isTV = false) => {
     try {
       let streamUrl = ""
@@ -176,6 +203,7 @@ export default function App() {
       setStreamingUrl(streamUrl)
       setSelectedMovie(item)
       setIsWatching(true)
+      setShowDetails(false)
     } catch (error) {
       Alert.alert("Error", "Failed to load video. Please try again.")
     }
@@ -215,6 +243,7 @@ export default function App() {
       startDownload(newDownload)
 
       Alert.alert("Download Started", `${item.title || item.name} has been added to downloads.`)
+      setShowDetails(false)
     } catch (error) {
       Alert.alert("Download Error", "Failed to start download. Please try again.")
     }
@@ -318,6 +347,20 @@ export default function App() {
     }
   }
 
+  const formatRuntime = (minutes: number) => {
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return `${hours}h ${mins}m`
+  }
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+    }).format(amount)
+  }
+
   const renderMovieCard = (item: Movie, isTV = false) => {
     const downloadId = `${item.id}-${isTV ? "tv" : "movie"}`
     const existingDownload = downloads.find((d) => d.id === downloadId)
@@ -366,6 +409,11 @@ export default function App() {
               )}
             </View>
           )}
+
+          {/* Details Button */}
+          <TouchableOpacity style={styles.detailsButton} onPress={() => getMovieDetails(item, isTV)}>
+            <Text style={styles.detailsButtonText}>ℹ️ Details</Text>
+          </TouchableOpacity>
 
           {/* Action Buttons Row */}
           <View style={styles.actionButtonsRow}>
@@ -462,6 +510,131 @@ export default function App() {
     </TouchableOpacity>
   )
 
+  // Movie Details Modal
+  const renderDetailsModal = () => (
+    <Modal visible={showDetails} animationType="slide" presentationStyle="pageSheet">
+      <View style={styles.modalContainer}>
+        <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
+
+        {/* Header */}
+        <View style={styles.modalHeader}>
+          <TouchableOpacity style={styles.closeButton} onPress={() => setShowDetails(false)}>
+            <Text style={styles.closeButtonText}>✕ Close</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Movie Details</Text>
+          <View style={styles.placeholder} />
+        </View>
+
+        {detailsLoading ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading details...</Text>
+          </View>
+        ) : movieDetails ? (
+          <ScrollView style={styles.detailsContent} showsVerticalScrollIndicator={false}>
+            {/* Poster and Basic Info */}
+            <View style={styles.detailsHeader}>
+              <Image
+                source={{
+                  uri: movieDetails.poster_path
+                    ? `${TMDB_IMAGE_BASE_URL}${movieDetails.poster_path}`
+                    : "https://via.placeholder.com/300x450/333/fff?text=No+Image",
+                }}
+                style={styles.detailsPoster}
+                resizeMode="cover"
+              />
+              <View style={styles.detailsInfo}>
+                <Text style={styles.detailsTitle}>{movieDetails.title || movieDetails.name}</Text>
+                {movieDetails.tagline && <Text style={styles.tagline}>"{movieDetails.tagline}"</Text>}
+                <View style={styles.detailsMeta}>
+                  <Text style={styles.metaText}>⭐ {movieDetails.vote_average?.toFixed(1)} / 10</Text>
+                  <Text style={styles.metaText}>📅 {movieDetails.release_date || movieDetails.first_air_date}</Text>
+                  {movieDetails.runtime && <Text style={styles.metaText}>⏱️ {formatRuntime(movieDetails.runtime)}</Text>}
+                  <Text style={styles.metaText}>📊 {movieDetails.status}</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Genres */}
+            {movieDetails.genres && movieDetails.genres.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Genres</Text>
+                <View style={styles.genresContainer}>
+                  {movieDetails.genres.map((genre) => (
+                    <View key={genre.id} style={styles.genreTag}>
+                      <Text style={styles.genreText}>{genre.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Overview */}
+            {movieDetails.overview && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Overview</Text>
+                <Text style={styles.overviewText}>{movieDetails.overview}</Text>
+              </View>
+            )}
+
+            {/* Production Info */}
+            {movieDetails.budget && movieDetails.budget > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Production</Text>
+                <Text style={styles.productionText}>💰 Budget: {formatCurrency(movieDetails.budget)}</Text>
+                {movieDetails.revenue && movieDetails.revenue > 0 && (
+                  <Text style={styles.productionText}>💵 Revenue: {formatCurrency(movieDetails.revenue)}</Text>
+                )}
+              </View>
+            )}
+
+            {/* Production Companies */}
+            {movieDetails.production_companies && movieDetails.production_companies.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Production Companies</Text>
+                {movieDetails.production_companies.slice(0, 3).map((company) => (
+                  <Text key={company.id} style={styles.companyText}>
+                    🏢 {company.name}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            {/* Languages */}
+            {movieDetails.spoken_languages && movieDetails.spoken_languages.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Languages</Text>
+                <Text style={styles.languageText}>
+                  🗣️ {movieDetails.spoken_languages.map((lang) => lang.name).join(", ")}
+                </Text>
+              </View>
+            )}
+
+            {/* Action Buttons */}
+            <View style={styles.detailsActions}>
+              <TouchableOpacity
+                style={styles.detailsWatchButton}
+                onPress={() => playContent(movieDetails, movieDetails.name ? true : false)}
+              >
+                <Text style={styles.detailsWatchButtonText}>▶ Watch Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.detailsDownloadButton}
+                onPress={() => downloadContent(movieDetails, movieDetails.name ? true : false)}
+              >
+                <Text style={styles.detailsDownloadButtonText}>⬇ Download</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Copyright */}
+            <View style={styles.detailsCopyright}>
+              <Text style={styles.copyrightText}>© 2024 Moe Thu Kyaw. All rights reserved.</Text>
+            </View>
+          </ScrollView>
+        ) : null}
+      </View>
+    </Modal>
+  )
+
   // Video Player Screen
   if (isWatching && streamingUrl) {
     return (
@@ -515,6 +688,11 @@ export default function App() {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Copyright */}
+        <View style={styles.playerCopyright}>
+          <Text style={styles.copyrightText}>© 2024 Moe Thu Kyaw. All rights reserved.</Text>
+        </View>
       </View>
     )
   }
@@ -526,7 +704,7 @@ export default function App() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>MovieStream</Text>
+        <Text style={styles.title}>MTK Video Streaming App</Text>
         <Text style={styles.subtitle}>Discover & Stream</Text>
       </View>
 
@@ -587,7 +765,16 @@ export default function App() {
               searchResults.map((item) => renderMovieCard(item, activeTab === "search-tv"))}
           </View>
         )}
+
+        {/* Copyright Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.copyrightText}>© 2024 Moe Thu Kyaw. All rights reserved.</Text>
+          <Text style={styles.copyrightSubtext}>MTK Video Streaming App</Text>
+        </View>
       </ScrollView>
+
+      {/* Details Modal */}
+      {renderDetailsModal()}
     </View>
   )
 }
@@ -604,7 +791,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#16213e",
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "bold",
     color: "#4facfe",
     marginBottom: 5,
@@ -726,11 +913,23 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginBottom: 3,
   },
+  // Details Button
+  detailsButton: {
+    backgroundColor: "#9b59b6",
+    padding: 8,
+    borderRadius: 6,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  detailsButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
   // Action Buttons Row - Side by Side
   actionButtonsRow: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 8,
   },
   watchButton: {
     flex: 1,
@@ -860,6 +1059,168 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
   },
+  // Details Modal
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "#1a1a2e",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 15,
+    paddingTop: 50,
+    backgroundColor: "#16213e",
+    borderBottomWidth: 1,
+    borderBottomColor: "#4facfe20",
+  },
+  closeButton: {
+    padding: 10,
+  },
+  closeButtonText: {
+    color: "#4facfe",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  modalTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  placeholder: {
+    width: 80,
+  },
+  detailsContent: {
+    flex: 1,
+    padding: 15,
+  },
+  detailsHeader: {
+    flexDirection: "row",
+    marginBottom: 20,
+  },
+  detailsPoster: {
+    width: 120,
+    height: 180,
+    borderRadius: 10,
+    backgroundColor: "#333",
+  },
+  detailsInfo: {
+    flex: 1,
+    marginLeft: 15,
+  },
+  detailsTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 5,
+  },
+  tagline: {
+    color: "#a8b2d1",
+    fontSize: 14,
+    fontStyle: "italic",
+    marginBottom: 10,
+  },
+  detailsMeta: {
+    gap: 5,
+  },
+  metaText: {
+    color: "#4facfe",
+    fontSize: 14,
+  },
+  section: {
+    marginBottom: 20,
+  },
+  genresContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  genreTag: {
+    backgroundColor: "#4facfe20",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#4facfe40",
+  },
+  genreText: {
+    color: "#4facfe",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  overviewText: {
+    color: "#a8b2d1",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  productionText: {
+    color: "#27ae60",
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  companyText: {
+    color: "#a8b2d1",
+    fontSize: 14,
+    marginBottom: 3,
+  },
+  languageText: {
+    color: "#a8b2d1",
+    fontSize: 14,
+  },
+  detailsActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginVertical: 20,
+  },
+  detailsWatchButton: {
+    flex: 1,
+    backgroundColor: "#e74c3c",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  detailsWatchButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  detailsDownloadButton: {
+    flex: 1,
+    backgroundColor: "#4facfe",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  detailsDownloadButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  detailsCopyright: {
+    alignItems: "center",
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#4facfe20",
+  },
+  // Footer
+  footer: {
+    alignItems: "center",
+    padding: 30,
+    borderTopWidth: 1,
+    borderTopColor: "#4facfe20",
+    marginTop: 20,
+  },
+  copyrightText: {
+    color: "#666",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  copyrightSubtext: {
+    color: "#555",
+    fontSize: 10,
+    textAlign: "center",
+    marginTop: 5,
+  },
   // Video Player Styles
   playerHeader: {
     flexDirection: "row",
@@ -940,5 +1301,10 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "bold",
+  },
+  playerCopyright: {
+    alignItems: "center",
+    padding: 15,
+    backgroundColor: "#16213e",
   },
 })
