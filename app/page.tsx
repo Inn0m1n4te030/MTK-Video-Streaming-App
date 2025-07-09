@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Play, Search, Star, TrendingUp, Tv, Clock, Info } from "lucide-react"
+import { Play, Search, Star, TrendingUp, Tv, Clock, Info, X, Download } from "lucide-react"
 
 const TMDB_API_KEY = "8265bd1679663a7ea12ac168da84d2e8"
 const TMDB_BASE_URL = "https://api.themoviedb.org/3"
@@ -34,6 +34,9 @@ export default function Home() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [movieDetails, setMovieDetails] = useState<any | null>(null)
+  const [streamingUrl, setStreamingUrl] = useState<string | null>(null)
+  const [selectedMovie, setSelectedMovie] = useState<any>(null)
+  const [isWatching, setIsWatching] = useState(false)
 
   /* ------------------------ INITIAL FETCH ------------------------ */
   useEffect(() => {
@@ -93,6 +96,62 @@ export default function Home() {
     }
   }
 
+  /* ---------------------- STREAMING HANDLERS -------------------- */
+  const playMovie = async (movie: any) => {
+    try {
+      // Get movie details to get IMDB ID
+      const detailsRes = await fetch(`${TMDB_BASE_URL}/movie/${movie.id}?api_key=${TMDB_API_KEY}`)
+      const details = await detailsRes.json()
+
+      // Use IMDB ID if available, otherwise use TMDB ID
+      const movieId = details.imdb_id || movie.id
+      const streamUrl = `https://vidsrc.icu/embed/movie/${movieId}`
+
+      setStreamingUrl(streamUrl)
+      setSelectedMovie(movie)
+      setIsWatching(true)
+      setDialogOpen(false)
+    } catch (err) {
+      // Fallback to TMDB ID
+      const streamUrl = `https://vidsrc.icu/embed/movie/${movie.id}`
+      setStreamingUrl(streamUrl)
+      setSelectedMovie(movie)
+      setIsWatching(true)
+      setDialogOpen(false)
+    }
+  }
+
+  const playTVShow = async (show: any) => {
+    try {
+      // Get TV show details to get IMDB ID
+      const detailsRes = await fetch(`${TMDB_BASE_URL}/tv/${show.id}?api_key=${TMDB_API_KEY}`)
+      const details = await detailsRes.json()
+
+      // Use IMDB ID if available, otherwise use TMDB ID
+      const showId = details.external_ids?.imdb_id || show.id
+      // Default to season 1, episode 1
+      const streamUrl = `https://vidsrc.icu/embed/tv/${showId}/1/1`
+
+      setStreamingUrl(streamUrl)
+      setSelectedMovie(show)
+      setIsWatching(true)
+      setDialogOpen(false)
+    } catch (err) {
+      // Fallback to TMDB ID
+      const streamUrl = `https://vidsrc.icu/embed/tv/${show.id}/1/1`
+      setStreamingUrl(streamUrl)
+      setSelectedMovie(show)
+      setIsWatching(true)
+      setDialogOpen(false)
+    }
+  }
+
+  const stopWatching = () => {
+    setStreamingUrl(null)
+    setSelectedMovie(null)
+    setIsWatching(false)
+  }
+
   /* ---------------------- RENDER HELPERS ------------------------ */
   const renderMovieCard = (item: any, isTV = false) => (
     <Card
@@ -129,14 +188,88 @@ export default function Home() {
           <Info className="w-4 h-4 mr-1" /> Details
         </Button>
 
-        <Button size="sm" disabled className="w-full bg-gradient-to-r from-red-600 to-pink-600 text-white">
-          <Play className="w-4 h-4 mr-1" /> Watch
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white"
+            onClick={() => (isTV ? playTVShow(item) : playMovie(item))}
+          >
+            <Play className="w-4 h-4 mr-1" /> Watch
+          </Button>
+          <Button
+            size="sm"
+            className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+            onClick={() => alert("Download feature coming soon!")}
+          >
+            <Download className="w-4 h-4 mr-1" /> Download
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )
 
-  /* -------------------------- JSX ------------------------------- */
+  /* -------------------------- VIDEO PLAYER ---------------------- */
+  if (isWatching && streamingUrl) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 bg-black/20 backdrop-blur-sm">
+          <Button
+            onClick={stopWatching}
+            variant="outline"
+            className="border-blue-300/30 text-blue-200 hover:bg-blue-600/20 bg-transparent"
+          >
+            <X className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+          <div className="text-center">
+            <h1 className="text-white font-bold text-lg">{selectedMovie?.title || selectedMovie?.name}</h1>
+            <p className="text-blue-200 text-sm">Now Playing</p>
+          </div>
+          <div className="w-20"></div>
+        </div>
+
+        {/* Warning */}
+        <div className="mx-4 mb-4 p-3 bg-yellow-600/20 border border-yellow-500/30 rounded-lg">
+          <p className="text-yellow-200 text-sm text-center">
+            ⚠️ If video doesn't load, please disable ad blocker and allow popups
+          </p>
+        </div>
+
+        {/* Video Player */}
+        <div className="mx-4 mb-4 aspect-video bg-black rounded-lg overflow-hidden">
+          <iframe
+            src={streamingUrl}
+            className="w-full h-full"
+            allowFullScreen
+            allow="autoplay; encrypted-media; picture-in-picture"
+            title="Video Player"
+          />
+        </div>
+
+        {/* Troubleshooting */}
+        <div className="mx-4 p-4 bg-white/5 backdrop-blur-sm rounded-lg border border-white/10">
+          <h3 className="text-white font-semibold mb-2">Video not loading?</h3>
+          <ul className="text-blue-200 text-sm space-y-1 mb-3">
+            <li>• Disable ad blocker for this site</li>
+            <li>• Allow popups in your browser</li>
+            <li>• Check your internet connection</li>
+            <li>• Try refreshing the page</li>
+          </ul>
+          <Button onClick={() => window.open(streamingUrl, "_blank")} className="w-full bg-blue-600 hover:bg-blue-700">
+            Open in New Tab
+          </Button>
+        </div>
+
+        {/* Footer */}
+        <footer className="mt-8 text-center text-sm text-gray-400 pb-4">
+          © {new Date().getFullYear()} Moe Thu Kyaw. All rights reserved.
+        </footer>
+      </div>
+    )
+  }
+
+  /* -------------------------- MAIN JSX -------------------------- */
   return (
     <Fragment>
       <main className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 pb-20">
@@ -214,12 +347,12 @@ export default function Home() {
 
       {/* Details Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl bg-white text-black">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-black">
               Movie Details {detailsLoading && <span className="animate-pulse text-xs">(loading...)</span>}
             </DialogTitle>
-            <DialogDescription>{movieDetails?.title || movieDetails?.name}</DialogDescription>
+            <DialogDescription className="text-gray-700">{movieDetails?.title || movieDetails?.name}</DialogDescription>
           </DialogHeader>
 
           {movieDetails && !detailsLoading && (
@@ -235,28 +368,47 @@ export default function Home() {
                   className="w-40 h-60 object-cover rounded-md"
                 />
                 <div className="flex-1 text-sm space-y-2">
-                  <p>
-                    <span className="text-blue-300">Rating:</span> {movieDetails.vote_average?.toFixed(1)}/10
+                  <p className="text-black">
+                    <span className="text-blue-600 font-semibold">Rating:</span> {movieDetails.vote_average?.toFixed(1)}
+                    /10
                   </p>
-                  <p>
-                    <span className="text-blue-300">Runtime:</span>{" "}
+                  <p className="text-black">
+                    <span className="text-blue-600 font-semibold">Runtime:</span>{" "}
                     {movieDetails.runtime ? `${movieDetails.runtime} min` : "N/A"}
                   </p>
-                  <p>
-                    <span className="text-blue-300">Release:</span>{" "}
+                  <p className="text-black">
+                    <span className="text-blue-600 font-semibold">Release:</span>{" "}
                     {movieDetails.release_date || movieDetails.first_air_date}
                   </p>
                   {movieDetails.genres && (
-                    <p>
-                      <span className="text-blue-300">Genres:</span>{" "}
+                    <p className="text-black">
+                      <span className="text-blue-600 font-semibold">Genres:</span>{" "}
                       {movieDetails.genres.map((g: any) => g.name).join(", ")}
                     </p>
                   )}
                 </div>
               </div>
               {movieDetails.overview && (
-                <p className="text-sm leading-relaxed text-gray-200">{movieDetails.overview}</p>
+                <p className="text-sm leading-relaxed text-gray-800">{movieDetails.overview}</p>
               )}
+
+              {/* Action Buttons in Details */}
+              <div className="flex gap-2 mt-4">
+                <Button
+                  className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white"
+                  onClick={() => (movieDetails.name ? playTVShow(movieDetails) : playMovie(movieDetails))}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Watch Now
+                </Button>
+                <Button
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+                  onClick={() => alert("Download feature coming soon!")}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download
+                </Button>
+              </div>
             </div>
           )}
 
