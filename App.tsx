@@ -68,9 +68,13 @@ export default function App() {
   }, [])
 
   const requestPermissions = async () => {
-    const { status } = await MediaLibrary.requestPermissionsAsync()
-    if (status !== "granted") {
-      Alert.alert("Permission Required", "Storage permission is needed to download movies.")
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync()
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Storage permission is needed to download movies.")
+      }
+    } catch (error) {
+      console.log("Permission request failed:", error)
     }
   }
 
@@ -263,11 +267,6 @@ export default function App() {
       )
       await saveDownloads(updatedDownloads)
 
-      // Save to media library (optional)
-      if (Platform.OS === "android") {
-        await MediaLibrary.saveToLibraryAsync(localUri)
-      }
-
       Alert.alert("Download Complete", "Movie has been downloaded successfully!")
     } catch (error) {
       console.error("Error completing download:", error)
@@ -351,7 +350,7 @@ export default function App() {
             <Text style={styles.rating}>⭐ {item.vote_average?.toFixed(1) || "N/A"}</Text>
           </View>
 
-          {/* Download Progress */}
+          {/* Download Progress Bar */}
           {existingDownload && existingDownload.status === "downloading" && (
             <View style={styles.progressContainer}>
               <Text style={styles.progressText}>Downloading... {Math.round(existingDownload.progress)}%</Text>
@@ -368,15 +367,17 @@ export default function App() {
             </View>
           )}
 
-          {/* Action Buttons */}
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.playButton} onPress={() => playContent(item, isTV)}>
-              <Text style={styles.playButtonText}>▶ {isTV ? "Watch" : "Watch"}</Text>
+          {/* Action Buttons Row */}
+          <View style={styles.actionButtonsRow}>
+            {/* Watch Button - Left */}
+            <TouchableOpacity style={styles.watchButton} onPress={() => playContent(item, isTV)}>
+              <Text style={styles.watchButtonText}>▶ Watch</Text>
             </TouchableOpacity>
 
+            {/* Download Button - Right */}
             {existingDownload?.status === "completed" ? (
-              <TouchableOpacity style={styles.downloadedButton} onPress={() => playDownloadedContent(existingDownload)}>
-                <Text style={styles.downloadedButtonText}>📱 Offline</Text>
+              <TouchableOpacity style={styles.offlineButton} onPress={() => playDownloadedContent(existingDownload)}>
+                <Text style={styles.offlineButtonText}>📱 Offline</Text>
               </TouchableOpacity>
             ) : existingDownload?.status === "downloading" ? (
               <TouchableOpacity style={styles.downloadingButton} disabled>
@@ -717,25 +718,37 @@ const styles = StyleSheet.create({
     color: "#ffd700",
     fontSize: 12,
   },
-  buttonContainer: {
-    gap: 8,
-    marginTop: 5,
+  progressContainer: {
+    marginVertical: 8,
   },
-  playButton: {
+  progressText: {
+    color: "#a8b2d1",
+    fontSize: 10,
+    marginBottom: 3,
+  },
+  // Action Buttons Row - Side by Side
+  actionButtonsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
+  watchButton: {
+    flex: 1,
     backgroundColor: "#e74c3c",
-    padding: 8,
-    borderRadius: 5,
+    padding: 10,
+    borderRadius: 6,
     alignItems: "center",
   },
-  playButtonText: {
+  watchButtonText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "bold",
   },
   downloadButton: {
+    flex: 1,
     backgroundColor: "#4facfe",
-    padding: 8,
-    borderRadius: 5,
+    padding: 10,
+    borderRadius: 6,
     alignItems: "center",
   },
   downloadButtonText: {
@@ -744,34 +757,28 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   downloadingButton: {
+    flex: 1,
     backgroundColor: "#f39c12",
-    padding: 8,
-    borderRadius: 5,
+    padding: 10,
+    borderRadius: 6,
     alignItems: "center",
   },
   downloadingButtonText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "bold",
   },
-  downloadedButton: {
+  offlineButton: {
+    flex: 1,
     backgroundColor: "#27ae60",
-    padding: 8,
-    borderRadius: 5,
+    padding: 10,
+    borderRadius: 6,
     alignItems: "center",
   },
-  downloadedButtonText: {
+  offlineButtonText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "bold",
-  },
-  progressContainer: {
-    marginVertical: 5,
-  },
-  progressText: {
-    color: "#a8b2d1",
-    fontSize: 10,
-    marginBottom: 3,
   },
   // Downloads Screen
   downloadsContainer: {
