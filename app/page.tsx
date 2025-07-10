@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Play, Search, Star, TrendingUp, Tv, Clock, Info, X, Download } from "lucide-react"
 
 const TMDB_API_KEY = "8265bd1679663a7ea12ac168da84d2e8"
@@ -38,6 +39,12 @@ export default function Home() {
   const [selectedMovie, setSelectedMovie] = useState<any>(null)
   const [isWatching, setIsWatching] = useState(false)
 
+  // TV Show specific states
+  const [selectedSeason, setSelectedSeason] = useState<number>(1)
+  const [selectedEpisode, setSelectedEpisode] = useState<number>(1)
+  const [seasonDetails, setSeasonDetails] = useState<any>(null)
+  const [loadingSeasons, setLoadingSeasons] = useState(false)
+
   /* ------------------------ INITIAL FETCH ------------------------ */
   useEffect(() => {
     const fetchInitial = async () => {
@@ -62,18 +69,37 @@ export default function Home() {
 
   /* ---------------------- SEARCH HANDLERS ----------------------- */
   const handleSearch = async (endpoint: "movie" | "tv") => {
-    if (!searchQuery.trim()) return
+    if (!searchQuery.trim()) {
+      setError("Please enter a search term")
+      return
+    }
+
     setLoading(true)
     setError("")
+    setSearchResults([])
+
     try {
       const res = await fetch(
-        `${TMDB_BASE_URL}/search/${endpoint}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(searchQuery)}`,
+        `${TMDB_BASE_URL}/search/${endpoint}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(searchQuery)}&page=1`,
       )
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`)
+      }
+
       const data = await res.json()
-      setSearchResults(data.results ?? [])
-      if (data.results?.length === 0) setError("No results.")
-    } catch {
-      setError("Search failed.")
+      console.log("Search results:", data) // Debug log
+
+      if (data.results && data.results.length > 0) {
+        setSearchResults(data.results)
+        // Switch to appropriate search tab
+        setActiveTab(endpoint === "movie" ? "search-movies" : "search-tv")
+      } else {
+        setError(`No ${endpoint === "movie" ? "movies" : "TV shows"} found for "${searchQuery}"`)
+      }
+    } catch (err) {
+      console.error("Search error:", err)
+      setError("Search failed. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -83,16 +109,48 @@ export default function Home() {
   const openDetails = async (item: any, isTV = false) => {
     setDetailsLoading(true)
     setDialogOpen(true)
+    setSeasonDetails(null)
+    setSelectedSeason(1)
+    setSelectedEpisode(1)
+
     try {
       const res = await fetch(
         `${TMDB_BASE_URL}/${isTV ? "tv" : "movie"}/${item.id}?api_key=${TMDB_API_KEY}&append_to_response=videos,credits`,
       )
       const data = await res.json()
       setMovieDetails(data)
+
+      // If it's a TV show, load season 1 details by default
+      if (isTV && data.seasons && data.seasons.length > 0) {
+        loadSeasonDetails(item.id, 1)
+      }
     } catch {
       setMovieDetails(null)
     } finally {
       setDetailsLoading(false)
+    }
+  }
+
+  /* ---------------------- TV SEASON/EPISODE HANDLERS ------------ */
+  const loadSeasonDetails = async (tvId: number, seasonNumber: number) => {
+    setLoadingSeasons(true)
+    try {
+      const res = await fetch(`${TMDB_BASE_URL}/tv/${tvId}/season/${seasonNumber}?api_key=${TMDB_API_KEY}`)
+      const data = await res.json()
+      setSeasonDetails(data)
+      setSelectedEpisode(1) // Reset to first episode when changing seasons
+    } catch (err) {
+      console.error("Error loading season details:", err)
+    } finally {
+      setLoadingSeasons(false)
+    }
+  }
+
+  const handleSeasonChange = (seasonNumber: string) => {
+    const season = Number.parseInt(seasonNumber)
+    setSelectedSeason(season)
+    if (movieDetails) {
+      loadSeasonDetails(movieDetails.id, season)
     }
   }
 
@@ -121,26 +179,27 @@ export default function Home() {
     }
   }
 
-  const playTVShow = async (show: any) => {
+  const playTVShow = async (show: any, season = 1, episode = 1) => {
     try {
       // Get TV show details to get IMDB ID
-      const detailsRes = await fetch(`${TMDB_BASE_URL}/tv/${show.id}?api_key=${TMDB_API_KEY}`)
+      const detailsRes = await fetch(
+        `${TMDB_BASE_URL}/tv/${show.id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`,
+      )
       const details = await detailsRes.json()
 
       // Use IMDB ID if available, otherwise use TMDB ID
       const showId = details.external_ids?.imdb_id || show.id
-      // Default to season 1, episode 1
-      const streamUrl = `https://vidsrc.icu/embed/tv/${showId}/1/1`
+      const streamUrl = `https://vidsrc.icu/embed/tv/${showId}/${season}/${episode}`
 
       setStreamingUrl(streamUrl)
-      setSelectedMovie(show)
+      setSelectedMovie({ ...show, currentSeason: season, currentEpisode: episode })
       setIsWatching(true)
       setDialogOpen(false)
     } catch (err) {
       // Fallback to TMDB ID
-      const streamUrl = `https://vidsrc.icu/embed/tv/${show.id}/1/1`
+      const streamUrl = `https://vidsrc.icu/embed/tv/${show.id}/${season}/${episode}`
       setStreamingUrl(streamUrl)
-      setSelectedMovie(show)
+      setSelectedMovie({ ...show, currentSeason: season, currentEpisode: episode })
       setIsWatching(true)
       setDialogOpen(false)
     }
@@ -192,7 +251,7 @@ export default function Home() {
           <Button
             size="sm"
             className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white"
-            onClick={() => (isTV ? playTVShow(item) : playMovie(item))}
+            onClick={() => (isTV ? playTVShow(item, 1, 1) : playMovie(item))}
           >
             <Play className="w-4 h-4 mr-1" /> Watch
           </Button>
@@ -224,7 +283,11 @@ export default function Home() {
           </Button>
           <div className="text-center">
             <h1 className="text-white font-bold text-lg">{selectedMovie?.title || selectedMovie?.name}</h1>
-            <p className="text-blue-200 text-sm">Now Playing</p>
+            <p className="text-blue-200 text-sm">
+              {selectedMovie?.currentSeason && selectedMovie?.currentEpisode
+                ? `Season ${selectedMovie.currentSeason}, Episode ${selectedMovie.currentEpisode}`
+                : "Now Playing"}
+            </p>
           </div>
           <div className="w-20"></div>
         </div>
@@ -281,17 +344,31 @@ export default function Home() {
         </section>
 
         {/* Search */}
-        <div className="max-w-lg mx-auto px-4 mb-8 flex gap-2">
-          <Input
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch("movie")}
-            className="bg-white/10 text-white placeholder:text-blue-300"
-          />
-          <Button onClick={() => handleSearch("movie")} className="bg-blue-600 hover:bg-blue-700">
-            <Search className="w-4 h-4" />
-          </Button>
+        <div className="max-w-2xl mx-auto px-4 mb-8">
+          <div className="flex gap-2 mb-2">
+            <Input
+              placeholder="Search for movies or TV shows..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSearch("movie")
+                }
+              }}
+              className="bg-white/10 text-white placeholder:text-blue-300 border-white/20"
+            />
+            <Button onClick={() => handleSearch("movie")} className="bg-blue-600 hover:bg-blue-700">
+              <Search className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="flex gap-2 justify-center">
+            <Button size="sm" onClick={() => handleSearch("movie")} className="bg-red-600 hover:bg-red-700 text-white">
+              Search Movies
+            </Button>
+            <Button size="sm" onClick={() => handleSearch("tv")} className="bg-green-600 hover:bg-green-700 text-white">
+              Search TV Shows
+            </Button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -300,6 +377,8 @@ export default function Home() {
             { key: "trending", label: "Trending Movies", icon: <TrendingUp className="w-4 h-4" /> },
             { key: "trending-tv", label: "Trending TV", icon: <Tv className="w-4 h-4" /> },
             { key: "latest", label: "Latest Movies", icon: <Clock className="w-4 h-4" /> },
+            { key: "search-movies", label: "Movie Results", icon: <Search className="w-4 h-4" /> },
+            { key: "search-tv", label: "TV Results", icon: <Search className="w-4 h-4" /> },
           ].map((tab) => (
             <Button
               key={tab.key}
@@ -311,8 +390,10 @@ export default function Home() {
               }
               onClick={() => {
                 setActiveTab(tab.key as any)
-                setSearchResults([])
-                setError("")
+                if (!tab.key.startsWith("search")) {
+                  setSearchResults([])
+                  setError("")
+                }
               }}
             >
               {tab.icon}
@@ -322,7 +403,7 @@ export default function Home() {
         </div>
 
         {/* Error */}
-        {error && <div className="text-center text-red-300 mb-6">{error}</div>}
+        {error && <div className="text-center text-red-300 mb-6 px-4">{error}</div>}
 
         {/* Content */}
         <section className="container mx-auto px-4">
@@ -347,16 +428,20 @@ export default function Home() {
 
       {/* Details Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl bg-white text-black">
+        <DialogContent className="max-w-4xl bg-white text-black max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-black">
-              Movie Details {detailsLoading && <span className="animate-pulse text-xs">(loading...)</span>}
+              {movieDetails?.title || movieDetails?.name} Details
+              {detailsLoading && <span className="animate-pulse text-xs">(loading...)</span>}
             </DialogTitle>
-            <DialogDescription className="text-gray-700">{movieDetails?.title || movieDetails?.name}</DialogDescription>
+            <DialogDescription className="text-gray-700">
+              {movieDetails?.tagline || "Movie/TV Show Information"}
+            </DialogDescription>
           </DialogHeader>
 
           {movieDetails && !detailsLoading && (
-            <div className="grid gap-4">
+            <div className="grid gap-6">
+              {/* Basic Info */}
               <div className="flex gap-4">
                 <img
                   src={
@@ -374,7 +459,11 @@ export default function Home() {
                   </p>
                   <p className="text-black">
                     <span className="text-blue-600 font-semibold">Runtime:</span>{" "}
-                    {movieDetails.runtime ? `${movieDetails.runtime} min` : "N/A"}
+                    {movieDetails.runtime
+                      ? `${movieDetails.runtime} min`
+                      : movieDetails.episode_run_time?.[0]
+                        ? `${movieDetails.episode_run_time[0]} min/episode`
+                        : "N/A"}
                   </p>
                   <p className="text-black">
                     <span className="text-blue-600 font-semibold">Release:</span>{" "}
@@ -386,21 +475,108 @@ export default function Home() {
                       {movieDetails.genres.map((g: any) => g.name).join(", ")}
                     </p>
                   )}
+                  {movieDetails.number_of_seasons && (
+                    <p className="text-black">
+                      <span className="text-blue-600 font-semibold">Seasons:</span> {movieDetails.number_of_seasons}
+                    </p>
+                  )}
+                  {movieDetails.number_of_episodes && (
+                    <p className="text-black">
+                      <span className="text-blue-600 font-semibold">Episodes:</span> {movieDetails.number_of_episodes}
+                    </p>
+                  )}
                 </div>
               </div>
+
+              {/* Overview */}
               {movieDetails.overview && (
-                <p className="text-sm leading-relaxed text-gray-800">{movieDetails.overview}</p>
+                <div>
+                  <h3 className="text-lg font-semibold text-black mb-2">Overview</h3>
+                  <p className="text-sm leading-relaxed text-gray-800">{movieDetails.overview}</p>
+                </div>
               )}
 
-              {/* Action Buttons in Details */}
+              {/* TV Show Season/Episode Selection */}
+              {movieDetails.seasons && movieDetails.seasons.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-black">Episodes</h3>
+
+                  {/* Season Selector */}
+                  <div className="flex items-center gap-4">
+                    <label className="text-black font-medium">Season:</label>
+                    <Select value={selectedSeason.toString()} onValueChange={handleSeasonChange}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {movieDetails.seasons
+                          .filter((season: any) => season.season_number > 0)
+                          .map((season: any) => (
+                            <SelectItem key={season.season_number} value={season.season_number.toString()}>
+                              Season {season.season_number}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Episodes List */}
+                  {loadingSeasons ? (
+                    <div className="text-center py-4 text-gray-600">Loading episodes...</div>
+                  ) : seasonDetails?.episodes ? (
+                    <div className="grid gap-2 max-h-60 overflow-y-auto">
+                      {seasonDetails.episodes.map((episode: any) => (
+                        <div
+                          key={episode.episode_number}
+                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
+                        >
+                          <div className="flex-1">
+                            <h4 className="font-medium text-black">
+                              {episode.episode_number}. {episode.name}
+                            </h4>
+                            {episode.overview && (
+                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{episode.overview}</p>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              {episode.air_date} • {episode.runtime ? `${episode.runtime} min` : "Runtime N/A"}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="ml-4 bg-red-600 hover:bg-red-700 text-white"
+                            onClick={() => playTVShow(movieDetails, selectedSeason, episode.episode_number)}
+                          >
+                            <Play className="w-4 h-4 mr-1" />
+                            Watch
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-gray-600">No episodes found for this season.</div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
               <div className="flex gap-2 mt-4">
-                <Button
-                  className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white"
-                  onClick={() => (movieDetails.name ? playTVShow(movieDetails) : playMovie(movieDetails))}
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Watch Now
-                </Button>
+                {movieDetails.seasons ? (
+                  <Button
+                    className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white"
+                    onClick={() => playTVShow(movieDetails, selectedSeason, selectedEpisode)}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Watch S{selectedSeason}E{selectedEpisode}
+                  </Button>
+                ) : (
+                  <Button
+                    className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white"
+                    onClick={() => playMovie(movieDetails)}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Watch Movie
+                  </Button>
+                )}
                 <Button
                   className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
                   onClick={() => alert("Download feature coming soon!")}
